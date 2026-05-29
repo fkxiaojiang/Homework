@@ -6,6 +6,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import edu.guigu.accountbook.data.dao.CategorySummary
+import edu.guigu.accountbook.data.dao.MonthlyTrend
 import edu.guigu.accountbook.data.database.AppDatabase
 import edu.guigu.accountbook.data.model.Record
 import edu.guigu.accountbook.data.repository.RecordRepository
@@ -13,10 +14,8 @@ import kotlinx.coroutines.launch
 
 class RecordViewModel(application: Application) : AndroidViewModel(application) {
 
-    // 数据层对象
     private val repository: RecordRepository
 
-    // 内部可修改，外部只读
     private val _allRecords = MutableLiveData<List<Record>>(emptyList())
     val allRecords: LiveData<List<Record>> get() = _allRecords
 
@@ -26,9 +25,15 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
     private val _totalExpense = MutableLiveData(0.0)
     val totalExpense: LiveData<Double> get() = _totalExpense
 
-    // 支出分类汇总（给饼图用，Day 5 和进阶 X1 会用到）
     private val _expenseCategorySummary = MutableLiveData<List<CategorySummary>>(emptyList())
     val expenseCategorySummary: LiveData<List<CategorySummary>> get() = _expenseCategorySummary
+
+    private val _monthlyTrend = MutableLiveData<List<MonthlyTrend>>(emptyList())
+    val monthlyTrend: LiveData<List<MonthlyTrend>> get() = _monthlyTrend
+
+    private var currentFilterStart: Long? = null
+    private var currentFilterEnd: Long? = null
+    private var currentSearchKeyword: String = ""
 
     init {
         val dao = AppDatabase.getInstance(application).recordDao()
@@ -36,19 +41,53 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
         refreshData()
     }
 
-    // 获取数据业务
+    fun setMonthFilter(startDate: Long, endDate: Long) {
+        currentFilterStart = startDate
+        currentFilterEnd = endDate
+        refreshData()
+    }
+
+    fun clearMonthFilter() {
+        currentFilterStart = null
+        currentFilterEnd = null
+        refreshData()
+    }
+
+    fun setSearchKeyword(keyword: String) {
+        currentSearchKeyword = keyword
+        refreshData()
+    }
+
     private fun refreshData() {
-        // 启动协程
         viewModelScope.launch {
-            // 到数据层获取数据，转为状态数据LiveData
-            _allRecords.postValue(repository.getAllRecords())
+            _allRecords.postValue(loadVisibleRecords())
             _totalIncome.postValue(repository.getTotalIncome() ?: 0.0)
             _totalExpense.postValue(repository.getTotalExpense() ?: 0.0)
             _expenseCategorySummary.postValue(repository.getCategorySummary(Record.TYPE_EXPENSE))
+            _monthlyTrend.postValue(repository.getMonthlyTrend())
         }
     }
 
-    // 添加数据业务
+    private suspend fun loadVisibleRecords(): List<Record> {
+        val keyword = currentSearchKeyword.trim()
+        val start = currentFilterStart
+        val end = currentFilterEnd
+
+        return when {
+            start != null && end != null && keyword.isNotBlank() ->
+                repository.searchRecordsByDateRange(start, end, keyword)
+
+            start != null && end != null ->
+                repository.getRecordsByDateRange(start, end)
+
+            keyword.isNotBlank() ->
+                repository.searchRecords(keyword)
+
+            else ->
+                repository.getAllRecords()
+        }
+    }
+
     fun insert(record: Record) {
         viewModelScope.launch {
             repository.insert(record)
@@ -56,7 +95,6 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // 更新数据业务
     fun update(record: Record) {
         viewModelScope.launch {
             repository.update(record)
@@ -64,7 +102,6 @@ class RecordViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // 删除数据业务
     fun delete(record: Record) {
         viewModelScope.launch {
             repository.delete(record)
