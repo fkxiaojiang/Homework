@@ -4,3 +4,10 @@
 /build/
 /app/build/
 /local.properties
+
+# Signing keystores and release artifacts
+*.jks
+*.keystore
+*.p12
+*.pem
+/app/release/
